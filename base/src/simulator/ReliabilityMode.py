@@ -1,0 +1,9 @@
+from enum import Enum
+
+
+class ReliabilityMode(Enum):
+    NO_RELIABILITY = 0
+    ACKNOWLEDGES = 1
+    ACKNOWLEDGES_WITH_RETRANSMISSION = 2
+    PIPELINING_FIXED_WINDOW = 3
+    PIPELINING_DYNAMIC_WINDOW = 4
