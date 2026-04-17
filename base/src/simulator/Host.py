@@ -13,17 +13,17 @@ class Host(SimulatedEntity):
     def __init__(self, sim: Simulator, name: str, mode: ReliabilityMode):
         super().__init__(sim,name)
         self.mode=mode
-        self.TIMEOUT_DELAY=5 #en attendant
+        self.TIMEOUT_DELAY=5
         self._nic=None
         self.received_data={}
         self.total_retransmissions=0
         self.window={}
+        self.received_data={}
         self.ACK_expected=0
         self.packets_to_send=Queue()
         self.seq_to_use=0
     
-
-
+    
     def add_nic(self, nic: NIC) :
         if self._nic is None:
             self._nic=nic
@@ -51,9 +51,21 @@ class Host(SimulatedEntity):
             self._nic.send(pkt)
             self.seq_to_use+=1
         if self.mode ==ReliabilityMode.PIPELINING_FIXED_WINDOW :
-            pass   
+            i=0
+            for c in data:
+                self.window[i]=c
+                i+=1
+            pkt = Packet(self.seq_to_use, payload=self.window[self.seq_to_use])
+            self.seq_to_use+=1
+            timeOut_evt= Event(ctx=pkt, callback=self.check_retransmission_cumul)
+            self._sim.add_event(timeOut_evt,self.TIMEOUT_DELAY)
         
     def check_retransmission(self,pkt: Packet):
+        if pkt.seq_num!=self.ACK_expected-1:
+            self._nic.send(pkt)
+            self.total_retransmissions+=1
+    
+    def check_retransmission_cumul(self,pkt: Packet):
         if pkt.seq_num<=self.ACK_expected:
             self._nic.send(pkt)
             self.total_retransmissions+=1
@@ -77,7 +89,9 @@ class Host(SimulatedEntity):
                     if pkt.seq_num==self.ACK_expected:
                         self.ACK_expected+=1
                         pkt_ = Packet(self.seq_to_use, payload=self.packets_to_send.get())   
-                        self.seq_to_use+=1    
+                        self.seq_to_use+=1
+                        timeOut_evt= Event(ctx=pkt_, callback=self.check_retransmission)
+                        self._sim.add_event(timeOut_evt,self.TIMEOUT_DELAY)    
                         nic.send(pkt_)
             else:
                 self.received_data[pkt.seq_num]=pkt.payload
