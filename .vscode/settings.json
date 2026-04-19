@@ -1,5 +1,10 @@
 {
     "python.analysis.extraPaths": [
         "./base/src/simulator"
-    ]
+    ],
+    "python.testing.pytestArgs": [
+        "base"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
 }
