@@ -138,12 +138,13 @@ class Host(SimulatedEntity):
                     for seq in seq_to_remove:
                         del self.window[seq]
                     if self.ACK_expected in self.window:
-                        oldest_pkt = self.window[self.ACK_expected]
-                        timeOut_evt = Event(ctx=oldest_pkt, callback=self.check_retransmission_cumul)
+                        timeOut_evt = Event(ctx=self.window[self.ACK_expected], callback=self.check_retransmission_cumul)
                         self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
                     while len(self.window) < self.window_size and not self.packets_to_send.empty():
                         pkt_ = Packet(self.seq_to_use, payload=self.packets_to_send.get())
                         self.window[self.seq_to_use] = pkt_
+                        if self.seq_to_use == self.ACK_expected:
+                            self._sim.add_event(Event(pkt_, self.check_retransmission_cumul), self.TIMEOUT_DELAY)
                         self.seq_to_use += 1
                         nic.send(pkt_)
             else:
@@ -164,12 +165,13 @@ class Host(SimulatedEntity):
                     for seq in seq_to_remove:
                         del self.window[seq]
                     if self.ACK_expected in self.window:
-                        oldest_pkt = self.window[self.ACK_expected]
-                        timeOut_evt = Event(ctx=oldest_pkt, callback=self.check_retransmission_cumul)
+                        timeOut_evt = Event(ctx=self.window[self.ACK_expected], callback=self.check_retransmission_cumul)
                         self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
                     while len(self.window) < self.window_size and not self.packets_to_send.empty():
                         pkt_ = Packet(self.seq_to_use, payload=self.packets_to_send.get())
                         self.window[self.seq_to_use] = pkt_
+                        if self.seq_to_use == self.ACK_expected:
+                            self._sim.add_event(Event(pkt_, self.check_retransmission_cumul), self.TIMEOUT_DELAY)
                         self.seq_to_use += 1
                         nic.send(pkt_)
             else:
