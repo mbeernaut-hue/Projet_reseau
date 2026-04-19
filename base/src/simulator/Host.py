@@ -33,6 +33,8 @@ class Host(SimulatedEntity):
     def send_data(self, data:str) :
         self.seq_to_use=0
         self.seq_expected=0
+        self.total_retransmissions=0
+        self.ACK_expected
         if self.mode ==ReliabilityMode.NO_RELIABILITY :
             for c in data:
                 pkt = Packet(self.seq_to_use, payload=c)
@@ -60,29 +62,26 @@ class Host(SimulatedEntity):
                 pkt_ = Packet(self.seq_to_use, payload=payload_)
                 self.window[self.seq_to_use] = pkt_
                 self.seq_to_use += 1
-                timeOut_evt = Event(ctx=pkt_, callback=self.check_retransmission)
+                timeOut_evt = Event(ctx=pkt_, callback=self.check_retransmission_cumul)
                 self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
                 self._nic.send(pkt_)
         
     def check_retransmission(self,pkt: Packet):
-        if pkt.seq_num>=self.ACK_expected-1:
-            timeOut_evt= Event(ctx=pkt, callback=self.check_retransmission_cumul)
+        if pkt.seq_num>=self.ACK_expected:
+            timeOut_evt= Event(ctx=pkt, callback=self.check_retransmission)
             self._sim.add_event(timeOut_evt,self.TIMEOUT_DELAY)
             self._nic.send(pkt)
             self.total_retransmissions+=1
     
     def check_retransmission_cumul(self, pkt: Packet):
-        if len(self.window) == 0:
+        if len(self.window)==0:
             return
-        
         oldest_seq = min(self.window.keys())
         if pkt.seq_num == oldest_seq:
-            for pkt_to_resend in self.window.values(): 
-                self._nic.send(pkt_to_resend)
+                self._nic.send(pkt)
+                timeOut_evt = Event(ctx=pkt, callback=self.check_retransmission_cumul)
+                self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
                 self.total_retransmissions += 1
-            
-            timeOut_evt = Event(ctx=self.window[oldest_seq], callback=self.check_retransmission_cumul)
-            self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
 
     def receive(self, nic:NIC,pkt: Packet):
         if self.mode ==ReliabilityMode.NO_RELIABILITY:
@@ -101,9 +100,9 @@ class Host(SimulatedEntity):
                 
         if self.mode==ReliabilityMode.ACKNOWLEDGES_WITH_RETRANSMISSION :
             if pkt.is_ack==True:
-                if not self.packets_to_send.empty():
-                    if pkt.seq_num==self.ACK_expected:
-                        self.ACK_expected+=1
+                if pkt.seq_num==self.ACK_expected:
+                    self.ACK_expected+=1
+                    if not self.packets_to_send.empty():
                         pkt_ = Packet(self.seq_to_use, payload=self.packets_to_send.get())   
                         self.seq_to_use+=1
                         timeOut_evt= Event(ctx=pkt_, callback=self.check_retransmission)
@@ -128,12 +127,14 @@ class Host(SimulatedEntity):
                         pkt_ = Packet(self.seq_to_use, payload=self.packets_to_send.get())
                         self.window[self.seq_to_use] = pkt_
                         self.seq_to_use += 1
-                        timeOut_evt = Event(ctx=pkt_, callback=self.check_retransmission)
+                        timeOut_evt = Event(ctx=pkt_, callback=self.check_retransmission_cumul)
                         self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
                         nic.send(pkt_)
             else:
-                self.received_data[pkt.seq_num]=pkt.payload
-                ack = Packet(pkt.seq_num, type=PacketType.ACK)
+                self.received_data[pkt.seq_num] = pkt.payload
+                while self.seq_expected in self.received_data:
+                    self.seq_expected += 1
+                ack = Packet(self.seq_expected - 1, type=PacketType.ACK)
                 nic.send(ack)
 
 
@@ -141,10 +142,18 @@ class Host(SimulatedEntity):
 
     def get_received_data(self) -> str:
         msg = ""
-        for i in self.received_data.keys():
-            msg += self.received_data[i]
-        self.received_data={}
-        return msg
+        if self.mode!=ReliabilityMode.PIPELINING_FIXED_WINDOW :
+            for i in self.received_data.keys():
+                msg += self.received_data[i]
+            self.received_data={}
+            return msg
+        else:
+            seq_to_take=0
+            while seq_to_take in self.received_data:
+                msg += self.received_data[seq_to_take]
+                del self.received_data[seq_to_take]
+                seq_to_take+= 1  
+            return msg
     
     def get_current_window_size(self) -> int :
         return len(self.window)

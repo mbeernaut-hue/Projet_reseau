@@ -40,16 +40,10 @@ class NIC(SimulatedEntity):
                 self.info(f"on récupère le premier paquet de la file et on l'envoi sur le lien")
                 self.busy=True
                 self.info(f"transmission d'un paquet")
-                if paquet.type == PacketType.DATA :
-                    liberation_evt = Event(ctx=None, callback=self.end_tx)
-                    t_tx = (paquet.size * 8) / self._rate
-                    self._sim.add_event(liberation_evt, t_tx)
-                    self.transmit(paquet)
-                else:
-                    self.info(f"transmission de l'ack a l'hote")
-                    end_propa_evt = Event(ctx=paquet, callback=self.end_propa)
-                    t_prop = self.link.distance / self.link.speed
-                    self._sim.add_event(end_propa_evt,t_prop)
+                liberation_evt = Event(ctx=None, callback=self.end_tx)
+                t_tx = (paquet.size * 8) / self._rate
+                self._sim.add_event(liberation_evt, t_tx)
+                self.transmit(paquet)
 
 
     def transmit(self,pkt:'Packet') :
