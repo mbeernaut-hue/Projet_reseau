@@ -34,7 +34,7 @@ class Host(SimulatedEntity):
         self.seq_to_use=0
         self.seq_expected=0
         self.total_retransmissions=0
-        self.ACK_expected
+        self.ACK_expected=0
         if self.mode ==ReliabilityMode.NO_RELIABILITY :
             for c in data:
                 pkt = Packet(self.seq_to_use, payload=c)
