@@ -22,7 +22,7 @@ class Host(SimulatedEntity):
         self.packets_to_send=Queue()
         self.seq_to_use=0
         self.seq_expected=0
-        self.window_size= 100
+        self.window_size= 1
     
     
     def add_nic(self, nic: NIC) :
@@ -57,7 +57,7 @@ class Host(SimulatedEntity):
         if self.mode == ReliabilityMode.PIPELINING_FIXED_WINDOW:
             for c in data:
                 self.packets_to_send.put(c)
-            while self.get_current_window_size() < self.window_size and not self.packets_to_send.empty():
+            while len(self.window) < self.window_size and not self.packets_to_send.empty():
                 payload_ = self.packets_to_send.get()
                 pkt_ = Packet(self.seq_to_use, payload=payload_)
                 self.window[self.seq_to_use] = pkt_
@@ -65,7 +65,19 @@ class Host(SimulatedEntity):
                 timeOut_evt = Event(ctx=pkt_, callback=self.check_retransmission_cumul)
                 self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
                 self._nic.send(pkt_)
-        
+        if self.mode == ReliabilityMode.PIPELINING_DYNAMIC_WINDOW:
+            for c in data:
+                self.packets_to_send.put(c)
+            while len(self.window) < self.window_size and not self.packets_to_send.empty():
+                payload_ = self.packets_to_send.get()
+                pkt_ = Packet(self.seq_to_use, payload=payload_)
+                self.window[self.seq_to_use] = pkt_
+                if self.seq_to_use == self.ACK_expected:
+                    timeOut_evt = Event(ctx=pkt_, callback=self.check_retransmission_cumul)
+                    self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
+                self.seq_to_use += 1
+                self._nic.send(pkt_)
+
     def check_retransmission(self,pkt: Packet):
         if pkt.seq_num>=self.ACK_expected:
             timeOut_evt= Event(ctx=pkt, callback=self.check_retransmission)
@@ -78,6 +90,8 @@ class Host(SimulatedEntity):
             return
         oldest_seq = min(self.window.keys())
         if pkt.seq_num == oldest_seq:
+                if self.mode==ReliabilityMode.PIPELINING_DYNAMIC_WINDOW:
+                    self.window_size=1
                 self._nic.send(pkt)
                 timeOut_evt = Event(ctx=pkt, callback=self.check_retransmission_cumul)
                 self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
@@ -123,12 +137,14 @@ class Host(SimulatedEntity):
                             seq_to_remove.append(seq)
                     for seq in seq_to_remove:
                         del self.window[seq]
-                    while self.get_current_window_size() < self.window_size and not self.packets_to_send.empty():
+                    if self.ACK_expected in self.window:
+                        oldest_pkt = self.window[self.ACK_expected]
+                        timeOut_evt = Event(ctx=oldest_pkt, callback=self.check_retransmission_cumul)
+                        self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
+                    while len(self.window) < self.window_size and not self.packets_to_send.empty():
                         pkt_ = Packet(self.seq_to_use, payload=self.packets_to_send.get())
                         self.window[self.seq_to_use] = pkt_
                         self.seq_to_use += 1
-                        timeOut_evt = Event(ctx=pkt_, callback=self.check_retransmission_cumul)
-                        self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
                         nic.send(pkt_)
             else:
                 self.received_data[pkt.seq_num] = pkt.payload
@@ -136,13 +152,40 @@ class Host(SimulatedEntity):
                     self.seq_expected += 1
                 ack = Packet(self.seq_expected - 1, type=PacketType.ACK)
                 nic.send(ack)
+        if self.mode == ReliabilityMode.PIPELINING_DYNAMIC_WINDOW:
+            if pkt.is_ack==True:
+                seq_to_remove=[]
+                if pkt.seq_num>=self.ACK_expected:
+                    self.window_size += 1
+                    self.ACK_expected=pkt.seq_num+1
+                    for seq in self.window.keys():
+                        if seq <= pkt.seq_num:
+                            seq_to_remove.append(seq)
+                    for seq in seq_to_remove:
+                        del self.window[seq]
+                    if self.ACK_expected in self.window:
+                        oldest_pkt = self.window[self.ACK_expected]
+                        timeOut_evt = Event(ctx=oldest_pkt, callback=self.check_retransmission_cumul)
+                        self._sim.add_event(timeOut_evt, self.TIMEOUT_DELAY)
+                    while len(self.window) < self.window_size and not self.packets_to_send.empty():
+                        pkt_ = Packet(self.seq_to_use, payload=self.packets_to_send.get())
+                        self.window[self.seq_to_use] = pkt_
+                        self.seq_to_use += 1
+                        nic.send(pkt_)
+            else:
+                self.received_data[pkt.seq_num] = pkt.payload
+                while self.seq_expected in self.received_data:
+                    self.seq_expected += 1
+                ack = Packet(self.seq_expected - 1, type=PacketType.ACK)
+                nic.send(ack)
+                    
 
 
 
 
     def get_received_data(self) -> str:
         msg = ""
-        if self.mode!=ReliabilityMode.PIPELINING_FIXED_WINDOW :
+        if self.mode not in [ReliabilityMode.PIPELINING_FIXED_WINDOW, ReliabilityMode.PIPELINING_DYNAMIC_WINDOW]:
             for i in self.received_data.keys():
                 msg += self.received_data[i]
             self.received_data={}
@@ -156,7 +199,7 @@ class Host(SimulatedEntity):
             return msg
     
     def get_current_window_size(self) -> int :
-        return len(self.window)
+        return self.window_size
     
     def get_total_retransmissions(self) -> int :
         return self.total_retransmissions
